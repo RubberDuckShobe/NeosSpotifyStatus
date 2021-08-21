@@ -16,3 +16,5 @@ To actually be able to use this, you will need to get the item from my public fo
 3. Grab the item that just spawned, open your context menu and save it. **(Note: You may need to return to the root of your own inventory to save the folder.)**
 4. Open your inventory and enter the folder.
 5. Spawn the item.
+6. While the server program is running, click on the button that says "Connect to WebSocket".
+7. Wait for a bit. This shouldn't take too long, though.
