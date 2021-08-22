@@ -2,6 +2,7 @@
 Shows Spotify status inside Neos using WebSocket. Also allows for controlling playback (Spotify Premium only)
 
 ## Server Setup
+Make sure you have installed the [.NET 5.0 Runtime](https://dotnet.microsoft.com/download)!
 1. Get the latest release of the server [here](https://github.com/RubberDuckShobe/NeosSpotifyStatus/releases) and extract it somewhere.
 2. Create a Spotify application on the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/applications).
 3. Go to the settings of your Spotify application and add ``http://localhost:5000/callback`` as a Redirect URI.
