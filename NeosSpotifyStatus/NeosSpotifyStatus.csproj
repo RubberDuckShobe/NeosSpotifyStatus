@@ -6,10 +6,30 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="config.ini" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="config.ini" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="EmbedIO" Version="3.4.3" />
     <PackageReference Include="ini-parser" Version="2.5.2" />
-    <PackageReference Include="SpotifyAPI.Web" Version="6.2.0" />
-    <PackageReference Include="SpotifyAPI.Web.Auth" Version="6.2.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="WebSocketSharp" Version="1.0.3-rc11" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="SpotifyAPI.Web">
+      <HintPath>..\bin\SpotifyAPI.Web\SpotifyAPI.Web.dll</HintPath>
+    </Reference>
+    <Reference Include="SpotifyAPI.Web.Auth">
+      <HintPath>..\bin\SpotifyAPI.Web\SpotifyAPI.Web.Auth.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="config.ini" />
+  </ItemGroup>
 </Project>

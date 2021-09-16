@@ -9,7 +9,7 @@ using SpotifyAPI.Web;
 
 namespace NeosSpotifyStatus
 {
-    class MainBehavior : WebSocketBehavior
+    internal class MainBehavior : WebSocketBehavior
     {
         /*
          * List of the prefixes/commands received from Neos via WebSockets:
@@ -22,77 +22,97 @@ namespace NeosSpotifyStatus
          * 6 - Seek to position
         */
 
-        protected override void OnMessage(MessageEventArgs e) {
+        protected override void OnClose(CloseEventArgs e)
+        {
+            Console.WriteLine($"A connection was closed! Reason: {e.Reason}, Code: {e.Code}");
+        }
+
+        protected override void OnMessage(MessageEventArgs e)
+        {
             //I'm not going to simply get the playback data on every message received
             //That would be a lot of unneeded requests
             //and I'm already getting ratelimited
             int commandCode = int.Parse(e.Data[0].ToString());
             string commandData = e.Data.Remove(0, 1);
             Console.WriteLine($"Command {commandCode} received, data: {commandData}");
-            try {
-                switch (commandCode) {
+            try
+            {
+                switch (commandCode)
+                {
                     case 0:
-                        var playback = Program.spotify.Player.GetCurrentPlayback().Result;
-                        if (playback == null) {
+                        var playback = SpotifyTracker.Spotify.Player.GetCurrentPlayback().Result;
+                        if (playback == null)
+                        {
                             Console.WriteLine("No playback detected!");
                             break;
                         }
-                        if (playback.IsPlaying) {
-                            Program.spotify.Player.PausePlayback().Wait();
+                        if (playback.IsPlaying)
+                        {
+                            SpotifyTracker.Spotify.Player.PausePlayback().Wait();
                         }
-                        else {
-                            Program.spotify.Player.ResumePlayback().Wait();
+                        else
+                        {
+                            SpotifyTracker.Spotify.Player.ResumePlayback().Wait();
                         }
                         break;
+
                     case 1:
-                        Program.spotify.Player.SkipPrevious().Wait();
+                        SpotifyTracker.Spotify.Player.SkipPrevious().Wait();
                         break;
+
                     case 2:
-                        Program.spotify.Player.SkipNext().Wait();
+                        SpotifyTracker.Spotify.Player.SkipNext().Wait();
                         break;
+
                     case 3:
-                        Program.SendInfo();
+                        var currentPlayback = SpotifyTracker.Spotify.Player.GetCurrentPlayback().Result;
+                        SpotifyTracker.SendInfo(currentPlayback);
                         break;
+
                     case 4:
-                        Program.repeatNum = int.Parse(commandData);
-                        PlayerSetRepeatRequest repeatRequest = new((PlayerSetRepeatRequest.State)Program.repeatNum);
-                        Program.spotify.Player.SetRepeat(repeatRequest).Wait();
+                        SpotifyTracker.RepeatNum = int.Parse(commandData);
+                        PlayerSetRepeatRequest repeatRequest = new((PlayerSetRepeatRequest.State)SpotifyTracker.RepeatNum);
+                        SpotifyTracker.Spotify.Player.SetRepeat(repeatRequest).Wait();
                         break;
+
                     case 5:
-                        var playback2 = Program.spotify.Player.GetCurrentPlayback().Result;
-                        if (playback2 == null) {
+                        var playback2 = SpotifyTracker.Spotify.Player.GetCurrentPlayback().Result;
+                        if (playback2 == null)
+                        {
                             Console.WriteLine("No playback detected!");
                             break;
                         }
                         bool doShuffle;
-                        if (playback2.ShuffleState) {
+                        if (playback2.ShuffleState)
+                        {
                             doShuffle = false;
                         }
-                        else {
+                        else
+                        {
                             doShuffle = true;
                         }
                         PlayerShuffleRequest shuffleRequest = new PlayerShuffleRequest(doShuffle);
-                        Program.spotify.Player.SetShuffle(shuffleRequest).Wait();
+                        SpotifyTracker.Spotify.Player.SetShuffle(shuffleRequest).Wait();
                         break;
+
                     case 6:
                         PlayerSeekToRequest seekRequest = new(int.Parse(commandData));
-                        Program.spotify.Player.SeekTo(seekRequest).Wait();
+                        SpotifyTracker.Spotify.Player.SeekTo(seekRequest).Wait();
                         break;
                 }
             }
-            catch (Exception ex) {
+            catch (Exception ex)
+            {
                 Console.WriteLine($"Exception caught: {ex}");
-                Program.SendInfo();
+                var currentPlayback = SpotifyTracker.Spotify.Player.GetCurrentPlayback().Result;
+                SpotifyTracker.SendInfo(currentPlayback);
             }
         }
 
-        protected override void OnOpen() {
+        protected override void OnOpen()
+        {
             Console.WriteLine("New connection opened, list of sessions:");
-            Console.WriteLine(string.Join("\n", Sessions.ActiveIDs.ToArray()));
-        }
-
-        protected override void OnClose(CloseEventArgs e) {
-            Console.WriteLine($"A connection was closed! Reason: {e.Reason}, Code: {e.Code}");
+            Console.WriteLine($"    {string.Join(Environment.NewLine + "    ", Sessions.ActiveIDs)}");
         }
     }
 }
