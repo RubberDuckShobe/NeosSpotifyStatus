@@ -168,7 +168,9 @@ namespace NeosSpotifyStatus
                     new AuthorizationCodeRefreshRequest(Config.ClientId, Config.ClientSecret, Config.RefreshToken));
 
             accessExpiry = refreshResponse.CreatedAt + TimeSpan.FromSeconds(refreshResponse.ExpiresIn);
-            Config.RefreshToken = refreshResponse.RefreshToken;
+
+            if (!string.IsNullOrWhiteSpace(refreshResponse.RefreshToken))
+                Config.RefreshToken = refreshResponse.RefreshToken;
 
             Spotify = new SpotifyClient(refreshResponse.AccessToken);
 
