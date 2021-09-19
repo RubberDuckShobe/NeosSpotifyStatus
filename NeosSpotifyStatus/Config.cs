@@ -12,7 +12,7 @@ namespace NeosSpotifyStatus
 {
     internal static class Config
     {
-        private const string configBackupFile = "config_old.ini";
+        public const string ConfigBackupFile = "config_old.ini";
         private const string configFile = "config.ini";
         private const string refreshFile = "refreshtoken.txt";
 
@@ -61,7 +61,7 @@ namespace NeosSpotifyStatus
         public static void ExportDefaultConfig()
         {
             if (File.Exists(configFile))
-                File.Move(configFile, configBackupFile);
+                File.Move(configFile, ConfigBackupFile);
 
             using var configFileStream = File.Create(configFile);
             var defaultConfigStream = Assembly.GetExecutingAssembly().GetManifestResourceStream("NeosSpotifyStatus." + configFile);

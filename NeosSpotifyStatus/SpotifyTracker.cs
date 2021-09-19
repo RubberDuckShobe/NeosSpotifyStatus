@@ -10,28 +10,51 @@ using WebSocketSharp.Server;
 
 namespace NeosSpotifyStatus
 {
-    /*
-     * List of the prefixes/commands sent to Neos via WebSockets:
-     * 0 - clear everything
-     * 1 - Title
-     * 2 - Artist(s)
-     * 3 - Cover URL
-     * 4 - Album name
-     * 5 - Current song position (in ms)
-     * 6 - Total song duration (in ms)
-     * 7 - Is playing
-     * 8 - Repeat state
-     * 9 - Shuffle state
-     */
-
     internal static class SpotifyTracker
     {
         public static WebSocketServer wsServer = new WebSocketServer(IPAddress.Loopback, 1011, false);
+
+        private static readonly List<ChangeTracker> changeTrackers = new List<ChangeTracker>()
+        {
+            new ChangeTracker(nC => PlayableChanged?.Invoke(SpotifyInfo.Playable, nC.Item.GetResource()),
+                (oC, nC) => !oC.Item.GetResource().Equals(nC.Item.GetResource())),
+            new ChangeTracker(nC => CreatorChanged?.Invoke(SpotifyInfo.Creator, nC.Item.GetCreators()),
+                (oC, nC) =>
+                {
+                    var oCreators = oC.Item.GetCreators();
+                    var nCreators = nC.Item.GetCreators();
+
+                    return oCreators.Count() != nCreators.Count()
+                    || oCreators.Except(nCreators).Any()
+                    || nCreators.Except(oCreators).Any();
+                }),
+            new ChangeTracker(nC => CoverChanged?.Invoke(SpotifyInfo.Cover, nC.Item.GetCover()),
+                (oC, nC) => oC.Item.GetCover() != nC.Item.GetCover()),
+            new ChangeTracker(nC => GroupingChanged?.Invoke(SpotifyInfo.Grouping, nC.Item.GetGrouping()),
+                (oC, nC) => !oC.Item.GetGrouping().Equals(nC.Item.GetGrouping())),
+            new ChangeTracker(nC => ProgressChanged?.Invoke(SpotifyInfo.Progress, nC.ProgressMs),
+                (oC, nC) => oC.ProgressMs != nC.ProgressMs),
+            new ChangeTracker(nC => DurationChanged?.Invoke(SpotifyInfo.Duration, nC.Item.GetDuration()),
+                (oC, nC) => oC.Item.GetDuration() != nC.Item.GetDuration()),
+            new ChangeTracker(nC => IsPlayingChanged?.Invoke(SpotifyInfo.IsPlaying, nC.IsPlaying),
+                (oC, nC) => oC.IsPlaying != nC.IsPlaying),
+            new ChangeTracker(nC => RepeatStateChanged?.Invoke(SpotifyInfo.RepeatState, (int)SpotifyHelper.GetState(nC.RepeatState)),
+                (oC, nC) => oC.RepeatState != nC.RepeatState),
+            new ChangeTracker(nC => IsShuffledChanged?.Invoke(SpotifyInfo.IsShuffled, nC.ShuffleState),
+                (oC, nC) => oC.ShuffleState != nC.ShuffleState),
+        };
+
         private static readonly OAuthClient oAuthClient = new OAuthClient(SpotifyClientConfig.CreateDefault());
+
         private static readonly ManualResetEventSlim spotifyClientAvailable = new ManualResetEventSlim(false);
+
         private static DateTime accessExpiry;
+
         private static Thread renewingThread;
+
         private static Thread trackingThread;
+
+        public static CurrentlyPlayingContext LastPlayingContext { get; private set; }
 
         /// <summary>
         /// Gets or sets the playback refresh interval in milliseconds.
@@ -39,58 +62,21 @@ namespace NeosSpotifyStatus
         public static int RefreshInterval { get; set; } = 30000;
 
         public static int RepeatNum { get; set; }
+
         public static SpotifyClient Spotify { get; private set; }
 
         static SpotifyTracker()
         {
-            wsServer.AddWebSocketService<MainBehavior>("/neos-spotify-bridge");
+            wsServer.AddWebSocketService<SpotifyPlaybackService>("/neos-spotify-bridge");
             wsServer.Start();
 
             Console.WriteLine("WebSocket Server running at: " + wsServer.Address + ":" + wsServer.Port);
         }
 
-        public static int SendInfo(CurrentlyPlayingContext currentPlayback)
+        public static void ForceFullRefresh()
         {
-            switch (currentPlayback.Item)
-            {
-                case FullTrack track:
-                    TimeSpan duration = new TimeSpan(0, 0, 0, 0, track.DurationMs);
-                    TimeSpan position = new TimeSpan(0, 0, 0, 0, currentPlayback.ProgressMs);
-
-                    // Send messages to Neos
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast($"1{track.Name}");
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast($"2{string.Join<string>(", ", track.Artists.Select(artist => artist.Name))}");
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast($"3{track.Album.Images[0].Url}");
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast($"4{track.Album.Name}");
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast($"5{currentPlayback.ProgressMs}");
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast($"6{track.DurationMs}");
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast($"7{currentPlayback.IsPlaying}");
-                    switch (currentPlayback.RepeatState)
-                    {
-                        case "off":
-                            RepeatNum = 2;
-                            break;
-
-                        case "context":
-                            RepeatNum = 1;
-                            break;
-
-                        case "track":
-                            RepeatNum = 0;
-                            break;
-                    }
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast($"8{RepeatNum}");
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast($"9{currentPlayback.ShuffleState}");
-
-                    return track.DurationMs - currentPlayback.ProgressMs;
-
-                case FullEpisode episode:
-                    //Podcasts not supported (yet)
-                    return episode.DurationMs - currentPlayback.ProgressMs;
-
-                default:
-                    return int.MaxValue;
-            }
+            LastPlayingContext = null;
+            Update();
         }
 
         public static void Start()
@@ -102,6 +88,28 @@ namespace NeosSpotifyStatus
 
             trackingThread = new Thread(updateLoop);
             trackingThread.Start();
+        }
+
+        public static async Task<bool> Update()
+        {
+            spotifyClientAvailable.Wait();
+
+            // Skip hitting the API when there's no client anyways
+            if (wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Count == 0)
+                return false;
+
+            var currentPlayback = await Spotify.Player.GetCurrentPlayback();
+
+            if (currentPlayback == null || currentPlayback.Item == null) // move this to individual checks on trackers
+            {
+                wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast("0");
+                return false;
+            }
+
+            sendOutUpdates(currentPlayback);
+
+            LastPlayingContext = currentPlayback;
+            return true;
         }
 
         private static async void authorizationTracker()
@@ -179,6 +187,12 @@ namespace NeosSpotifyStatus
             spotifyClientAvailable.Set();
         }
 
+        private static void sendOutUpdates(CurrentlyPlayingContext newPlayingContext)
+        {
+            foreach (var changeTracker in changeTrackers.Where(changeTracker => LastPlayingContext == null || changeTracker.TestChanged(LastPlayingContext, newPlayingContext)))
+                changeTracker.InvokeEvent(newPlayingContext);
+        }
+
         private static async void updateLoop()
         {
             var nextWait = 0;
@@ -187,26 +201,43 @@ namespace NeosSpotifyStatus
             {
                 Thread.Sleep(nextWait);
 
-                // Skip hitting the API when there's no client anyways
-                if (wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Count == 0)
-                {
-                    nextWait = 5000;
-                    continue;
-                }
+                var hitApi = await Update();
 
-                var currentPlayback = await Spotify.Player.GetCurrentPlayback();
+                // Refresh earlier when the track ends, or to check if no one is connected
+                nextWait = hitApi ? Math.Min(RefreshInterval, LastPlayingContext.Item.GetDuration() - LastPlayingContext.ProgressMs + 1000) : 5000;
+            }
+        }
 
-                if (currentPlayback == null)
-                {
-                    wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast("0");
-                    nextWait = 5000;
-                    continue;
-                }
+        public static event SpotifyTrackerChangedHandler<string> CoverChanged;
 
-                var remainingDuration = SendInfo(currentPlayback) + 1000;
+        public static event SpotifyTrackerChangedHandler<IEnumerable<SpotifyResource>> CreatorChanged;
 
-                // Refresh earlier when the track ends
-                nextWait = Math.Min(RefreshInterval, remainingDuration);
+        public static event SpotifyTrackerChangedHandler<int> DurationChanged;
+
+        public static event SpotifyTrackerChangedHandler<SpotifyResource> GroupingChanged;
+
+        public static event SpotifyTrackerChangedHandler<bool> IsPlayingChanged;
+
+        public static event SpotifyTrackerChangedHandler<bool> IsShuffledChanged;
+
+        public static event SpotifyTrackerChangedHandler<SpotifyResource> PlayableChanged;
+
+        public static event SpotifyTrackerChangedHandler<int> ProgressChanged;
+
+        public static event SpotifyTrackerChangedHandler<int> RepeatStateChanged;
+
+        public delegate void SpotifyTrackerChangedHandler<in T>(SpotifyInfo info, T newValue);
+
+        private class ChangeTracker
+        {
+            public Action<CurrentlyPlayingContext> InvokeEvent { get; }
+
+            public Func<CurrentlyPlayingContext, CurrentlyPlayingContext, bool> TestChanged { get; }
+
+            public ChangeTracker(Action<CurrentlyPlayingContext> invokeEvent, Func<CurrentlyPlayingContext, CurrentlyPlayingContext, bool> testChanged)
+            {
+                InvokeEvent = invokeEvent;
+                TestChanged = testChanged;
             }
         }
     }
