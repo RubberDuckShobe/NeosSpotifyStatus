@@ -60,7 +60,7 @@ namespace NeosSpotifyStatus
 
             if (currentPlayback == null || currentPlayback.Item == null) // move this to individual checks on trackers
             {
-                wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast("0");
+                wsServer.WebSocketServices[wsServiceName].Sessions.Broadcast("0");
                 updateTimer.Change(RefreshInterval, Timeout.Infinite);
                 return;
             }

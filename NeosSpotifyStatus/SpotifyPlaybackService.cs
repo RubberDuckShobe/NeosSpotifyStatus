@@ -15,9 +15,8 @@ namespace NeosSpotifyStatus
     {
         private static readonly Regex spotifyUriEx = new Regex(@"(?:spotify:|https?:\/\/open\.spotify\.com\/)(episode|track)[:\/]([0-9A-z]+)");
 
-        private static CurrentlyPlayingContext lastPlayingContext;
-
         private readonly List<ChangeTracker> changeTrackers;
+        private CurrentlyPlayingContext lastPlayingContext;
 
         public SpotifyPlaybackService()
         {

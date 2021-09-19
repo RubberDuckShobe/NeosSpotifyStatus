@@ -3,7 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.31424.327
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NeosSpotifyStatus", "NeosSpotifyStatus\NeosSpotifyStatus.csproj", "{115D1F1C-3D7E-4F20-A683-1605536B656F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NeosSpotifyStatus", "NeosSpotifyStatus\NeosSpotifyStatus.csproj", "{115D1F1C-3D7E-4F20-A683-1605536B656F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NeosSpotifyStatus.TestClient", "NeosSpotifyStatus.TestClient\NeosSpotifyStatus.TestClient.csproj", "{F1C35FD9-61DE-49CD-8FB1-A564513197BB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +17,10 @@ Global
 		{115D1F1C-3D7E-4F20-A683-1605536B656F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{115D1F1C-3D7E-4F20-A683-1605536B656F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{115D1F1C-3D7E-4F20-A683-1605536B656F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F1C35FD9-61DE-49CD-8FB1-A564513197BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F1C35FD9-61DE-49CD-8FB1-A564513197BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F1C35FD9-61DE-49CD-8FB1-A564513197BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F1C35FD9-61DE-49CD-8FB1-A564513197BB}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
