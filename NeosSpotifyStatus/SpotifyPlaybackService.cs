@@ -15,19 +15,56 @@ namespace NeosSpotifyStatus
     {
         private static readonly Regex spotifyUriEx = new Regex(@"(?:spotify:|https?:\/\/open\.spotify\.com\/)(episode|track)[:\/]([0-9A-z]+)");
 
+        private static CurrentlyPlayingContext lastPlayingContext;
+
+        private readonly List<ChangeTracker> changeTrackers;
+
+        public SpotifyPlaybackService()
+        {
+            changeTrackers = new List<ChangeTracker>()
+            {
+                new ChangeTracker(nC => handleChangedResource(SpotifyInfo.Playable, nC.Item.GetResource()),
+                    (oC, nC) => !oC.Item.GetResource().Equals(nC.Item.GetResource())),
+
+                new ChangeTracker(nC => handleChangedResources(SpotifyInfo.Creator, nC.Item.GetCreators()),
+                    (oC, nC) =>
+                    {
+                        var oCreators = oC.Item.GetCreators();
+                        var nCreators = nC.Item.GetCreators();
+
+                        return oCreators.Count() != nCreators.Count()
+                        || oCreators.Except(nCreators).Any()
+                        || nCreators.Except(oCreators).Any();
+                    }),
+
+                new ChangeTracker(nC => sendMessage(SpotifyInfo.Cover, nC.Item.GetCover()),
+                    (oC, nC) => oC.Item.GetCover() != nC.Item.GetCover()),
+
+                new ChangeTracker(nC => handleChangedResource(SpotifyInfo.Grouping, nC.Item.GetGrouping()),
+                    (oC, nC) => !oC.Item.GetGrouping().Equals(nC.Item.GetGrouping())),
+
+                new ChangeTracker(nC => handleChangedInt(SpotifyInfo.Progress, nC.ProgressMs),
+                    (oC, nC) => oC.ProgressMs != nC.ProgressMs),
+
+                new ChangeTracker(nC => handleChangedInt(SpotifyInfo.Duration, nC.Item.GetDuration()),
+                    (oC, nC) => oC.Item.GetDuration() != nC.Item.GetDuration()),
+
+                new ChangeTracker(nC => handleChangedBool(SpotifyInfo.IsPlaying, nC.IsPlaying),
+                    (oC, nC) => oC.IsPlaying != nC.IsPlaying),
+
+                new ChangeTracker(nC => handleChangedInt(SpotifyInfo.RepeatState, (int)SpotifyHelper.GetState(nC.RepeatState)),
+                    (oC, nC) => oC.RepeatState != nC.RepeatState),
+
+                new ChangeTracker(nC => handleChangedBool(SpotifyInfo.IsShuffled, nC.ShuffleState),
+                    (oC, nC) => oC.ShuffleState != nC.ShuffleState),
+            };
+        }
+
         protected override void OnClose(CloseEventArgs e)
         {
-            Console.WriteLine($"A connection was closed! Reason: {e.Reason}, Code: {e.Code}");
+            SpotifyTracker.ContextUpdated -= sendOutUpdates;
 
-            SpotifyTracker.PlayableChanged -= handleChangedResource;
-            SpotifyTracker.CreatorChanged -= handleChangedResources;
-            SpotifyTracker.CoverChanged -= sendMessage;
-            SpotifyTracker.GroupingChanged -= handleChangedResource;
-            SpotifyTracker.ProgressChanged -= handleChangedInt;
-            SpotifyTracker.DurationChanged -= handleChangedInt;
-            SpotifyTracker.IsPlayingChanged -= handleChangedBool;
-            SpotifyTracker.RepeatStateChanged -= handleChangedInt;
-            SpotifyTracker.IsShuffledChanged -= handleChangedBool;
+            Console.WriteLine($"A connection was closed! Reason: {e.Reason}, Code: {e.Code}");
         }
 
         protected override async void OnMessage(MessageEventArgs e)
@@ -68,11 +105,11 @@ namespace NeosSpotifyStatus
                         break;
 
                     case 3:
-                        // Do nothing because update is done at the end anyways
+                        lastPlayingContext = null;
                         break;
 
                     case 4:
-                        var targetState = SpotifyHelper.GetState(SpotifyTracker.LastPlayingContext.RepeatState).Next();
+                        var targetState = SpotifyHelper.GetState(lastPlayingContext.RepeatState).Next();
 
                         if (int.TryParse(commandData, out var repeatNum))
                             targetState = (PlayerSetRepeatRequest.State)repeatNum;
@@ -130,26 +167,12 @@ namespace NeosSpotifyStatus
 
         protected override void OnOpen()
         {
+            SpotifyTracker.ContextUpdated += sendOutUpdates;
+
             Console.WriteLine("New connection opened, list of sessions:");
             Console.WriteLine($"    {string.Join(Environment.NewLine + "    ", Sessions.ActiveIDs)}");
 
-            SpotifyTracker.PlayableChanged += handleChangedResource;
-            SpotifyTracker.CreatorChanged += handleChangedResources;
-            SpotifyTracker.CoverChanged += sendMessage;
-            SpotifyTracker.GroupingChanged += handleChangedResource;
-            SpotifyTracker.ProgressChanged += handleChangedInt;
-            SpotifyTracker.DurationChanged += handleChangedInt;
-            SpotifyTracker.IsPlayingChanged += handleChangedBool;
-            SpotifyTracker.RepeatStateChanged += handleChangedInt;
-            SpotifyTracker.IsShuffledChanged += handleChangedBool;
-
-            Console.WriteLine($"Added event handlers for {ID}");
-
-            Task.Run(() =>
-            {
-                Task.Delay(5000);
-                SpotifyTracker.ForceFullRefresh();
-            });
+            Task.Run(() => SpotifyTracker.Update());
         }
 
         private void handleChangedBool(SpotifyInfo info, bool value)
@@ -178,6 +201,27 @@ namespace NeosSpotifyStatus
         {
             Console.WriteLine($"Sending {info.ToUpdateInt()}{data} to {ID}");
             Task.Run(() => Send($"{info.ToUpdateInt()}{data}"));
+        }
+
+        private void sendOutUpdates(CurrentlyPlayingContext newPlayingContext)
+        {
+            foreach (var changeTracker in changeTrackers.Where(changeTracker => lastPlayingContext == null || changeTracker.TestChanged(lastPlayingContext, newPlayingContext)))
+                changeTracker.InvokeEvent(newPlayingContext);
+
+            lastPlayingContext = newPlayingContext;
+        }
+
+        private class ChangeTracker
+        {
+            public Action<CurrentlyPlayingContext> InvokeEvent { get; }
+
+            public Func<CurrentlyPlayingContext, CurrentlyPlayingContext, bool> TestChanged { get; }
+
+            public ChangeTracker(Action<CurrentlyPlayingContext> invokeEvent, Func<CurrentlyPlayingContext, CurrentlyPlayingContext, bool> testChanged)
+            {
+                InvokeEvent = invokeEvent;
+                TestChanged = testChanged;
+            }
         }
 
         /*

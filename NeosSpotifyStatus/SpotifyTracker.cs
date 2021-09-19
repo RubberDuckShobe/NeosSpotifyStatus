@@ -1,8 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using SpotifyAPI.Web;
@@ -14,43 +11,13 @@ namespace NeosSpotifyStatus
     {
         public static WebSocketServer wsServer = new WebSocketServer(IPAddress.Loopback, 1011, false);
 
-        private static readonly List<ChangeTracker> changeTrackers = new List<ChangeTracker>()
-        {
-            new ChangeTracker(nC => PlayableChanged?.Invoke(SpotifyInfo.Playable, nC.Item.GetResource()),
-                (oC, nC) => !oC.Item.GetResource().Equals(nC.Item.GetResource())),
-            new ChangeTracker(nC => CreatorChanged?.Invoke(SpotifyInfo.Creator, nC.Item.GetCreators()),
-                (oC, nC) =>
-                {
-                    var oCreators = oC.Item.GetCreators();
-                    var nCreators = nC.Item.GetCreators();
-
-                    return oCreators.Count() != nCreators.Count()
-                    || oCreators.Except(nCreators).Any()
-                    || nCreators.Except(oCreators).Any();
-                }),
-            new ChangeTracker(nC => CoverChanged?.Invoke(SpotifyInfo.Cover, nC.Item.GetCover()),
-                (oC, nC) => oC.Item.GetCover() != nC.Item.GetCover()),
-            new ChangeTracker(nC => GroupingChanged?.Invoke(SpotifyInfo.Grouping, nC.Item.GetGrouping()),
-                (oC, nC) => !oC.Item.GetGrouping().Equals(nC.Item.GetGrouping())),
-            new ChangeTracker(nC => ProgressChanged?.Invoke(SpotifyInfo.Progress, nC.ProgressMs),
-                (oC, nC) => oC.ProgressMs != nC.ProgressMs),
-            new ChangeTracker(nC => DurationChanged?.Invoke(SpotifyInfo.Duration, nC.Item.GetDuration()),
-                (oC, nC) => oC.Item.GetDuration() != nC.Item.GetDuration()),
-            new ChangeTracker(nC => IsPlayingChanged?.Invoke(SpotifyInfo.IsPlaying, nC.IsPlaying),
-                (oC, nC) => oC.IsPlaying != nC.IsPlaying),
-            new ChangeTracker(nC => RepeatStateChanged?.Invoke(SpotifyInfo.RepeatState, (int)SpotifyHelper.GetState(nC.RepeatState)),
-                (oC, nC) => oC.RepeatState != nC.RepeatState),
-            new ChangeTracker(nC => IsShuffledChanged?.Invoke(SpotifyInfo.IsShuffled, nC.ShuffleState),
-                (oC, nC) => oC.ShuffleState != nC.ShuffleState),
-        };
-
         private static readonly OAuthClient oAuthClient = new OAuthClient(SpotifyClientConfig.CreateDefault());
 
         private static readonly ManualResetEventSlim spotifyClientAvailable = new ManualResetEventSlim(false);
 
         private static DateTime accessExpiry;
 
-        private static Thread renewingThread;
+        private static AbsoluteTimer.AbsoluteTimer authTimer;
 
         private static Thread trackingThread;
 
@@ -81,8 +48,7 @@ namespace NeosSpotifyStatus
 
         public static void Start()
         {
-            renewingThread = new Thread(authorizationTracker);
-            renewingThread.Start();
+            handleAuthorization();
 
             spotifyClientAvailable.Wait();
 
@@ -106,43 +72,10 @@ namespace NeosSpotifyStatus
                 return false;
             }
 
-            sendOutUpdates(currentPlayback);
+            ContextUpdated?.Invoke(currentPlayback);
 
             LastPlayingContext = currentPlayback;
             return true;
-        }
-
-        private static async void authorizationTracker()
-        {
-            if (string.IsNullOrWhiteSpace(Config.RefreshToken))
-            {
-                // Get authorization if no refresh token can be loaded
-                await gainAuthorization();
-            }
-            else
-            {
-                try
-                {
-                    // Try using the refresh token for a new access token
-                    await refreshAuthorization();
-                }
-                catch (APIUnauthorizedException)
-                {
-                    // Get new authorization if refresh fails
-                    await gainAuthorization();
-                }
-            }
-
-            // Keep refreshing the access token before it expires
-            while (true)
-            {
-                // Wait until the token expires in two minutes
-                var refreshIn = accessExpiry - DateTime.UtcNow - TimeSpan.FromMinutes(2);
-                Console.WriteLine($"Refreshing access in {refreshIn}");
-                Thread.Sleep(refreshIn);
-
-                await refreshAuthorization();
-            }
         }
 
         private static async Task gainAuthorization()
@@ -158,7 +91,7 @@ namespace NeosSpotifyStatus
             );
 
             Config.RefreshToken = tokenResponse.RefreshToken;
-            accessExpiry = tokenResponse.CreatedAt + TimeSpan.FromSeconds(tokenResponse.ExpiresIn);
+            accessExpiry = DateTime.Now + TimeSpan.FromSeconds(tokenResponse.ExpiresIn);
 
             Spotify = new SpotifyClient(tokenResponse.AccessToken);
 
@@ -168,33 +101,58 @@ namespace NeosSpotifyStatus
             spotifyClientAvailable.Set();
         }
 
+        private static async void handleAuthorization(object _ = null)
+        {
+            if (string.IsNullOrWhiteSpace(Config.RefreshToken))
+            {
+                // Get authorization if no refresh token can be loaded
+                await gainAuthorization();
+            }
+            else
+            {
+                // Try using the refresh token for a new access token or get new auth
+                await refreshAuthorization();
+            }
+
+            // Set new timer to refresh the access token before it expires
+            // Wait until the token expires in two minutes
+            var refreshAt = accessExpiry - TimeSpan.FromMinutes(2);
+            Console.WriteLine($"Refreshing access at {refreshAt}");
+
+            authTimer?.Dispose();
+            authTimer = new AbsoluteTimer.AbsoluteTimer(refreshAt, handleAuthorization, null);
+        }
+
         private static async Task refreshAuthorization()
         {
             spotifyClientAvailable.Reset();
 
-            var refreshResponse = await oAuthClient.RequestToken(
-                    new AuthorizationCodeRefreshRequest(Config.ClientId, Config.ClientSecret, Config.RefreshToken));
+            try
+            {
+                var refreshResponse = await oAuthClient.RequestToken(
+                        new AuthorizationCodeRefreshRequest(Config.ClientId, Config.ClientSecret, Config.RefreshToken));
 
-            accessExpiry = refreshResponse.CreatedAt + TimeSpan.FromSeconds(refreshResponse.ExpiresIn);
+                accessExpiry = DateTime.Now + TimeSpan.FromSeconds(refreshResponse.ExpiresIn);
 
-            if (!string.IsNullOrWhiteSpace(refreshResponse.RefreshToken))
-                Config.RefreshToken = refreshResponse.RefreshToken;
+                if (!string.IsNullOrWhiteSpace(refreshResponse.RefreshToken))
+                    Config.RefreshToken = refreshResponse.RefreshToken;
 
-            Spotify = new SpotifyClient(refreshResponse.AccessToken);
+                Spotify = new SpotifyClient(refreshResponse.AccessToken);
 
-            Console.WriteLine($"Refreshed Access - valid until {accessExpiry.ToLocalTime()}");
+                Console.WriteLine($"Refreshed Access - valid until {accessExpiry.ToLocalTime()}");
 
-            spotifyClientAvailable.Set();
-        }
-
-        private static void sendOutUpdates(CurrentlyPlayingContext newPlayingContext)
-        {
-            foreach (var changeTracker in changeTrackers.Where(changeTracker => LastPlayingContext == null || changeTracker.TestChanged(LastPlayingContext, newPlayingContext)))
-                changeTracker.InvokeEvent(newPlayingContext);
+                spotifyClientAvailable.Set();
+            }
+            catch (APIException)
+            {
+                // Get new authorization if refresh fails
+                await gainAuthorization();
+            }
         }
 
         private static async void updateLoop()
         {
+            // TODO: Change this to using a Threading.Timer
             var nextWait = 0;
 
             while (true)
@@ -208,37 +166,6 @@ namespace NeosSpotifyStatus
             }
         }
 
-        public static event SpotifyTrackerChangedHandler<string> CoverChanged;
-
-        public static event SpotifyTrackerChangedHandler<IEnumerable<SpotifyResource>> CreatorChanged;
-
-        public static event SpotifyTrackerChangedHandler<int> DurationChanged;
-
-        public static event SpotifyTrackerChangedHandler<SpotifyResource> GroupingChanged;
-
-        public static event SpotifyTrackerChangedHandler<bool> IsPlayingChanged;
-
-        public static event SpotifyTrackerChangedHandler<bool> IsShuffledChanged;
-
-        public static event SpotifyTrackerChangedHandler<SpotifyResource> PlayableChanged;
-
-        public static event SpotifyTrackerChangedHandler<int> ProgressChanged;
-
-        public static event SpotifyTrackerChangedHandler<int> RepeatStateChanged;
-
-        public delegate void SpotifyTrackerChangedHandler<in T>(SpotifyInfo info, T newValue);
-
-        private class ChangeTracker
-        {
-            public Action<CurrentlyPlayingContext> InvokeEvent { get; }
-
-            public Func<CurrentlyPlayingContext, CurrentlyPlayingContext, bool> TestChanged { get; }
-
-            public ChangeTracker(Action<CurrentlyPlayingContext> invokeEvent, Func<CurrentlyPlayingContext, CurrentlyPlayingContext, bool> testChanged)
-            {
-                InvokeEvent = invokeEvent;
-                TestChanged = testChanged;
-            }
-        }
+        public static event Action<CurrentlyPlayingContext> ContextUpdated;
     }
 }

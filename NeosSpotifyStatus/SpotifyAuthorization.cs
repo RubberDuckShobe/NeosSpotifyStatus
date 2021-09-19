@@ -39,16 +39,19 @@ namespace NeosSpotifyStatus
 
         private static async Task OnAuthorizationCodeReceived(object sender, AuthorizationCodeResponse response)
         {
-            await server.Stop();
-
             code = response.Code;
             authorizationReceived.Set();
+
+            await server.Stop();
+
+            Console.WriteLine("Received authorization callback, stopped server.");
         }
 
         private static async Task OnErrorReceived(object sender, string error, string state)
         {
-            Console.WriteLine($"Aborting authorization, error received: {error}");
             await server.Stop();
+
+            Console.WriteLine($"Aborting authorization, error received: {error}");
         }
     }
 }
