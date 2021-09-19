@@ -9,19 +9,15 @@ namespace NeosSpotifyStatus
 {
     internal static class SpotifyTracker
     {
-        public static WebSocketServer wsServer = new WebSocketServer(IPAddress.Loopback, 1011, false);
-
+        private const string wsServiceName = "/neos-spotify-bridge";
         private static readonly OAuthClient oAuthClient = new OAuthClient(SpotifyClientConfig.CreateDefault());
-
         private static readonly ManualResetEventSlim spotifyClientAvailable = new ManualResetEventSlim(false);
-
+        private static readonly Timer updateTimer = new Timer(Update);
+        private static readonly WebSocketServer wsServer = new WebSocketServer(IPAddress.Loopback, 1011, false);
         private static DateTime accessExpiry;
-
         private static AbsoluteTimer.AbsoluteTimer authTimer;
-
-        private static Thread trackingThread;
-
         public static CurrentlyPlayingContext LastPlayingContext { get; private set; }
+        public static int Listeners => wsServer.WebSocketServices[wsServiceName].Sessions.Count;
 
         /// <summary>
         /// Gets or sets the playback refresh interval in milliseconds.
@@ -34,16 +30,10 @@ namespace NeosSpotifyStatus
 
         static SpotifyTracker()
         {
-            wsServer.AddWebSocketService<SpotifyPlaybackService>("/neos-spotify-bridge");
+            wsServer.AddWebSocketService<SpotifyPlaybackService>(wsServiceName);
             wsServer.Start();
 
             Console.WriteLine("WebSocket Server running at: " + wsServer.Address + ":" + wsServer.Port);
-        }
-
-        public static void ForceFullRefresh()
-        {
-            LastPlayingContext = null;
-            Update();
         }
 
         public static void Start()
@@ -52,30 +42,35 @@ namespace NeosSpotifyStatus
 
             spotifyClientAvailable.Wait();
 
-            trackingThread = new Thread(updateLoop);
-            trackingThread.Start();
+            Update();
         }
 
-        public static async Task<bool> Update()
+        public static async void Update(object _ = null)
         {
             spotifyClientAvailable.Wait();
 
             // Skip hitting the API when there's no client anyways
-            if (wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Count == 0)
-                return false;
+            if (Listeners == 0)
+            {
+                updateTimer.Change(5000, Timeout.Infinite);
+                return;
+            }
 
             var currentPlayback = await Spotify.Player.GetCurrentPlayback();
 
             if (currentPlayback == null || currentPlayback.Item == null) // move this to individual checks on trackers
             {
                 wsServer.WebSocketServices["/neos-spotify-bridge"].Sessions.Broadcast("0");
-                return false;
+                updateTimer.Change(RefreshInterval, Timeout.Infinite);
+                return;
             }
 
             ContextUpdated?.Invoke(currentPlayback);
 
             LastPlayingContext = currentPlayback;
-            return true;
+            updateTimer.Change(LastPlayingContext.Item != null ?
+                Math.Min(RefreshInterval, LastPlayingContext.Item.GetDuration() - LastPlayingContext.ProgressMs + 1000) : RefreshInterval,
+                Timeout.Infinite);
         }
 
         private static async Task gainAuthorization()
@@ -147,22 +142,6 @@ namespace NeosSpotifyStatus
             {
                 // Get new authorization if refresh fails
                 await gainAuthorization();
-            }
-        }
-
-        private static async void updateLoop()
-        {
-            // TODO: Change this to using a Threading.Timer
-            var nextWait = 0;
-
-            while (true)
-            {
-                Thread.Sleep(nextWait);
-
-                var hitApi = await Update();
-
-                // Refresh earlier when the track ends, or to check if no one is connected
-                nextWait = hitApi ? Math.Min(RefreshInterval, LastPlayingContext.Item.GetDuration() - LastPlayingContext.ProgressMs + 1000) : 5000;
             }
         }
 
