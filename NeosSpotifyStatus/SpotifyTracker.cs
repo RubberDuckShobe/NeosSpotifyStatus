@@ -98,24 +98,35 @@ namespace NeosSpotifyStatus
 
         private static async void handleAuthorization(object _ = null)
         {
-            if (string.IsNullOrWhiteSpace(Config.RefreshToken))
+            try
             {
-                // Get authorization if no refresh token can be loaded
-                await gainAuthorization();
+                if (string.IsNullOrWhiteSpace(Config.RefreshToken))
+                {
+                    // Get authorization if no refresh token can be loaded
+                    await gainAuthorization();
+                }
+                else
+                {
+                    // Try using the refresh token for a new access token or get new auth
+                    await refreshAuthorization();
+                }
+
+                // Set new timer to refresh the access token before it expires
+                // Wait until the token expires in two minutes
+                var refreshAt = accessExpiry - TimeSpan.FromMinutes(2);
+                Console.WriteLine($"Refreshing access at {refreshAt}");
+
+                authTimer?.Dispose();
+                authTimer = new AbsoluteTimer.AbsoluteTimer(refreshAt, handleAuthorization, null);
             }
-            else
+            catch (WebException)
             {
-                // Try using the refresh token for a new access token or get new auth
-                await refreshAuthorization();
+                Task.Run(async () =>
+                {
+                    await Task.Delay(60000);
+                    handleAuthorization();
+                });
             }
-
-            // Set new timer to refresh the access token before it expires
-            // Wait until the token expires in two minutes
-            var refreshAt = accessExpiry - TimeSpan.FromMinutes(2);
-            Console.WriteLine($"Refreshing access at {refreshAt}");
-
-            authTimer?.Dispose();
-            authTimer = new AbsoluteTimer.AbsoluteTimer(refreshAt, handleAuthorization, null);
         }
 
         private static async Task refreshAuthorization()
