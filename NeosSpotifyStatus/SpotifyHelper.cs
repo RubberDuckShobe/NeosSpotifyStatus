@@ -30,8 +30,8 @@ namespace NeosSpotifyStatus
         {
             return playableItem switch
             {
-                FullTrack track => track.Artists.Select(artist => new SpotifyResource(artist.Name, artist.Uri)).ToArray(),
-                FullEpisode episode => new[] { new SpotifyResource(episode.Show.Name, episode.Show.Uri) },
+                FullTrack track => track.Artists.Select(artist => new SpotifyResource(artist.Name, artist.ExternalUrls["spotify"])).ToArray(),
+                FullEpisode episode => new[] { new SpotifyResource(episode.Show.Name, episode.Show.ExternalUrls["spotify"]) },
                 _ => Enumerable.Empty<SpotifyResource>()
             };
         }
@@ -50,8 +50,8 @@ namespace NeosSpotifyStatus
         {
             return playableItem switch
             {
-                FullTrack track => new SpotifyResource(track.Album.Name, track.Album.Uri),
-                FullEpisode episode => new SpotifyResource(episode.Show.Name, episode.Show.Uri),
+                FullTrack track => new SpotifyResource(track.Album.Name, track.Album.ExternalUrls["spotify"]),
+                FullEpisode episode => new SpotifyResource(episode.Show.Name, episode.Show.ExternalUrls["spotify"]),
                 _ => null
             };
         }
@@ -60,8 +60,8 @@ namespace NeosSpotifyStatus
         {
             return playableItem switch
             {
-                FullTrack track => new SpotifyResource(track.Name, track.Uri),
-                FullEpisode episode => new SpotifyResource(episode.Name, episode.Uri),
+                FullTrack track => new SpotifyResource(track.Name, track.ExternalUrls["spotify"]),
+                FullEpisode episode => new SpotifyResource(episode.Name, episode.ExternalUrls["spotify"]),
                 _ => null,
             };
         }

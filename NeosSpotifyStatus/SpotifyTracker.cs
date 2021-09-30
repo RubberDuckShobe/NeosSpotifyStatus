@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Net;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using SpotifyAPI.Web;
@@ -119,7 +120,7 @@ namespace NeosSpotifyStatus
                 authTimer?.Dispose();
                 authTimer = new AbsoluteTimer.AbsoluteTimer(refreshAt, handleAuthorization, null);
             }
-            catch (WebException)
+            catch (HttpRequestException)
             {
                 Task.Run(async () =>
                 {

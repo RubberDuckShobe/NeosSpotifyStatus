@@ -108,13 +108,16 @@ namespace NeosSpotifyStatus
                         break;
 
                     case 4:
-                        var targetState = SpotifyHelper.GetState(lastPlayingContext.RepeatState).Next();
+                        if (lastPlayingContext != null)
+                        {
+                            var targetState = SpotifyHelper.GetState(lastPlayingContext.RepeatState).Next();
 
-                        if (int.TryParse(commandData, out var repeatNum))
-                            targetState = (PlayerSetRepeatRequest.State)repeatNum;
+                            if (int.TryParse(commandData, out var repeatNum))
+                                targetState = (PlayerSetRepeatRequest.State)repeatNum;
 
-                        var repeatRequest = new PlayerSetRepeatRequest(targetState);
-                        await SpotifyTracker.Spotify.Player.SetRepeat(repeatRequest);
+                            var repeatRequest = new PlayerSetRepeatRequest(targetState);
+                            await SpotifyTracker.Spotify.Player.SetRepeat(repeatRequest);
+                        }
                         break;
 
                     case 5:
@@ -147,7 +150,7 @@ namespace NeosSpotifyStatus
                         if (!match.Success)
                             break;
 
-                        var addRequest = new PlayerAddToQueueRequest($"{match.Groups[0]}:{match.Groups[1]}");
+                        var addRequest = new PlayerAddToQueueRequest($"spotify:{match.Groups[1]}:{match.Groups[2]}");
                         await SpotifyTracker.Spotify.Player.AddToQueue(addRequest);
                         // Send parse / add confirmation?
                         // Maybe general toast command
@@ -186,14 +189,14 @@ namespace NeosSpotifyStatus
 
         private void handleChangedResource(SpotifyInfo info, SpotifyResource resource)
         {
-            sendMessage(info, resource.Name);
-            //sendMessage(info & SpotifyInfo.ResourceUri, resource.Uri);
+            sendMessage(info, $"{resource.Uri}|{resource.Name}");
+            //sendMessage(info | SpotifyInfo.ResourceUri, resource.Uri);
         }
 
         private void handleChangedResources(SpotifyInfo info, IEnumerable<SpotifyResource> resources)
         {
-            sendMessage(info, string.Join(", ", resources.Select(res => res.Name)));
-            //sendMessage(info & SpotifyInfo.ResourceUri, string.Join(", ", resources.Select(res => res.Uri)));
+            sendMessage(info, string.Join("\n", resources.Select(res => $"{res.Uri}|{res.Name}")));
+            //sendMessage(info | SpotifyInfo.ResourceUri, string.Join(", ", resources.Select(res => res.Uri)));
         }
 
         private void sendMessage(SpotifyInfo info, string data)
