@@ -22,3 +22,8 @@ To actually be able to use this, you will need to get the item from my public fo
 6. While the server program is running, click on the button that says "Connect to WebSocket".
 7. Wait for a bit. This shouldn't take too long, though.
 8. Drop your Audio Stream panel into the button being displayed to use the integrated local volume and broadcast / spatialize controls.
+
+## Attributions
+
+Using icons from flaticon.com by Freepik, Pixel Perfect and Kirashastry.
+Modified by me for use as white on transparent masks and animations.
