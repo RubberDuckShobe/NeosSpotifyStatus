@@ -71,21 +71,15 @@ namespace NeosSpotifyStatus
             //I'm not going to simply get the playback data on every message received
             //That would be a lot of unneeded requests
             //and I'm already getting ratelimited
-            int commandCode = int.Parse(e.Data[0].ToString());
-            string commandData = e.Data.Remove(0, 1);
+            var commandCode = int.Parse(e.Data[0].ToString());
+            var commandData = e.Data.Substring(1);
             Console.WriteLine($"Command {commandCode} received, data: {commandData}");
             try
             {
                 switch (commandCode)
                 {
                     case 0:
-                        var playback = await SpotifyTracker.Spotify.Player.GetCurrentPlayback();
-                        if (playback == null)
-                        {
-                            Console.WriteLine("No playback detected!");
-                            break;
-                        }
-                        if (playback.IsPlaying)
+                        if (lastPlayingContext != null && lastPlayingContext.IsPlaying)
                         {
                             await SpotifyTracker.Spotify.Player.PausePlayback();
                         }
@@ -136,12 +130,12 @@ namespace NeosSpotifyStatus
                         {
                             doShuffle = true;
                         }
-                        PlayerShuffleRequest shuffleRequest = new PlayerShuffleRequest(doShuffle);
+                        var shuffleRequest = new PlayerShuffleRequest(doShuffle);
                         await SpotifyTracker.Spotify.Player.SetShuffle(shuffleRequest);
                         break;
 
                     case 6:
-                        PlayerSeekToRequest seekRequest = new(int.Parse(commandData));
+                        var seekRequest = new PlayerSeekToRequest(int.Parse(commandData));
                         await SpotifyTracker.Spotify.Player.SeekTo(seekRequest);
                         break;
 
