@@ -1,3 +1,6 @@
+# i ain't maintaining this fever dream no more
+Please go look at [Banane9's fork](https://github.com/Banane9/NeosSpotifyStatus). It should be *much* less cursed, work better and it has cool additional features.
+
 # NeosSpotifyStatus
 Shows Spotify status inside Neos using WebSocket. Also allows for controlling playback (Spotify Premium only)
 
